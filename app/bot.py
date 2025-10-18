@@ -231,6 +231,10 @@ async def finalize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(summary)
     await update.message.reply_text("Спасибо! Ваш заказ принят в работу.")
 
+    # Показать меню пользователю сразу после создания заказа
+    is_admin_user = update.effective_user.id in ADMIN_CHAT_IDS
+    await update.message.reply_text("Меню:", reply_markup=_user_menu_keyboard(is_admin_user))
+
     if ADMIN_CHAT_IDS:
         for admin_id in ADMIN_CHAT_IDS:
             try:
