@@ -119,7 +119,7 @@ def assign_order_to_admin(order_id: int, admin_id: int, db_path: Optional[str] =
 def get_waiting_orders(limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
     with get_conn(db_path) as conn:
         cur = conn.execute(
-            "SELECT * FROM orders WHERE assigned_admin_id IS NULL ORDER BY id DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM orders WHERE assigned_admin_id IS NULL AND status != 'Закрыт' ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         return list(cur.fetchall())
@@ -128,7 +128,7 @@ def get_waiting_orders(limit: int = 20, offset: int = 0, db_path: Optional[str] 
 def get_orders_by_admin(admin_id: int, limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
     with get_conn(db_path) as conn:
         cur = conn.execute(
-            "SELECT * FROM orders WHERE assigned_admin_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM orders WHERE assigned_admin_id = ? AND status != 'Закрыт' ORDER BY id DESC LIMIT ? OFFSET ?",
             (admin_id, limit, offset),
         )
         return list(cur.fetchall())

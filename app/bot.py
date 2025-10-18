@@ -88,6 +88,14 @@ def _waiting_order_keyboard(order_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def _my_order_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    # Статусы + отдельная кнопка "Закрыть"
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(s, callback_data=f"status:{order_id}:{s}")] for s in STATUSES]
+        + [[InlineKeyboardButton("Закрыть", callback_data=f"close:{order_id}")]]
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("/start from user_id=%s chat_id=%s",
                  getattr(update.effective_user, "id", None),
@@ -266,7 +274,7 @@ async def work_on_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"В работе №{row['id']} | {row['platform']} | {row['full_name_en']} | {row['status']}\n"
             f"Город: {row['city']} | Даты: {row['dates']}\n"
         )
-        await update.message.reply_text(text, reply_markup=_status_keyboard(int(row["id"])))
+        await update.message.reply_text(text, reply_markup=_my_order_keyboard(int(row["id"])))
 
 
 async def on_status_change(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -289,6 +297,18 @@ async def on_take_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     order_id = int(order_id_str)
     assign_order_to_admin(order_id, update.effective_user.id)
     await query.edit_message_text("Заказ взят в работу.")
+
+
+async def on_close_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id not in ADMIN_CHAT_IDS:
+        await update.callback_query.answer(text="Нет доступа", show_alert=True)
+        return
+    query = update.callback_query
+    await query.answer()
+    _, order_id_str = query.data.split(":", 1)
+    order_id = int(order_id_str)
+    update_order_status(order_id, "Закрыт")
+    await query.edit_message_text("Заказ закрыт.")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -328,6 +348,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CallbackQueryHandler(on_status_change, pattern=r"^status:\d+:.+"))
     application.add_handler(CallbackQueryHandler(on_take_order, pattern=r"^take:\d+$"))
+    application.add_handler(CallbackQueryHandler(on_close_order, pattern=r"^close:\d+$"))
 
     return application
 
