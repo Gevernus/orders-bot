@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from typing import Dict, List
 
@@ -74,6 +75,9 @@ def _status_keyboard(order_id: int) -> InlineKeyboardMarkup:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logging.info("/start from user_id=%s chat_id=%s",
+                 getattr(update.effective_user, "id", None),
+                 getattr(update.effective_chat, "id", None))
     text = (
         "Привет! Это бот заказов.\n\n"
         "Перед началом подтвердите согласие с правилами и подпишитесь на канал."
@@ -247,20 +251,15 @@ def build_application() -> Application:
     return application
 
 
-async def main() -> None:
+def main() -> None:
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.info("Bot starting...")
     application = build_application()
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-    try:
-        await asyncio.Event().wait()
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 
 
