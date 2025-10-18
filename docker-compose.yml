@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  orders-bot:
+    build: .
+    image: orders-bot:latest
+    container_name: orders-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      - DB_PATH=/app/data/orders.db
+    volumes:
+      - ./data:/app/data
+
+
