@@ -25,6 +25,8 @@ from .db import (
     get_waiting_orders,
     get_orders_by_admin,
     get_latest_open_order_by_user,
+    set_user_consent,
+    has_user_consented,
 )
 
 
@@ -115,6 +117,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                  getattr(update.effective_user, "id", None),
                  getattr(update.effective_chat, "id", None))
     print(f"/start received: user_id={getattr(update.effective_user, 'id', None)}")
+    user_id = update.effective_user.id
+    if has_user_consented(user_id):
+        # Пропускаем согласие
+        await (update.message or update.callback_query.message).reply_text(
+            "Выберите тип заказа:", reply_markup=_platform_keyboard()
+        )
+        context.user_data["order"] = {}
+        return PLATFORM
     text = (
         "Привет! Это бот заказов.\n\n"
         "Перед началом подтвердите согласие с правилами и подпишитесь на канал."
@@ -129,6 +139,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def on_consent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    # Запоминаем согласие
+    if update.effective_user:
+        set_user_consent(update.effective_user.id, True)
     await query.edit_message_text("Выберите тип заказа:", reply_markup=_platform_keyboard())
     context.user_data["order"] = {}
     return PLATFORM

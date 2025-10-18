@@ -6,6 +6,16 @@ from typing import Any, Dict, Iterable, List, Optional
 
 
 DEFAULT_DB_PATH = os.environ.get("DB_PATH", "/app/data/orders.db")
+def ensure_meta_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_meta (
+            user_id INTEGER PRIMARY KEY,
+            consent INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
 
 
 def _ensure_parent_dir_exists(path: str) -> None:
@@ -29,6 +39,7 @@ def get_conn(db_path: Optional[str] = None):
 
 def init_db(db_path: Optional[str] = None) -> None:
     with get_conn(db_path) as conn:
+        ensure_meta_table(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS orders (
@@ -107,6 +118,24 @@ def update_order_status(order_id: int, status: str, db_path: Optional[str] = Non
             "UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
             (status, datetime.utcnow().isoformat(), order_id),
         )
+
+
+def set_user_consent(user_id: int, consent: bool, db_path: Optional[str] = None) -> None:
+    with get_conn(db_path) as conn:
+        ensure_meta_table(conn)
+        conn.execute(
+            "INSERT INTO user_meta(user_id, consent, updated_at) VALUES(?, ?, ?)\n"
+            "ON CONFLICT(user_id) DO UPDATE SET consent=excluded.consent, updated_at=excluded.updated_at",
+            (user_id, 1 if consent else 0, datetime.utcnow().isoformat()),
+        )
+
+
+def has_user_consented(user_id: int, db_path: Optional[str] = None) -> bool:
+    with get_conn(db_path) as conn:
+        ensure_meta_table(conn)
+        cur = conn.execute("SELECT consent FROM user_meta WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        return bool(row and row[0])
 
 
 def assign_order_to_admin(order_id: int, admin_id: int, db_path: Optional[str] = None) -> None:
