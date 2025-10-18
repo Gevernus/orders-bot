@@ -190,6 +190,7 @@ async def finalize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"Статус: В работе"
     )
     await update.message.reply_text(summary)
+    await update.message.reply_text("Спасибо! Ваш заказ принят в работу.")
 
     if ADMIN_CHAT_IDS:
         for admin_id in ADMIN_CHAT_IDS:
