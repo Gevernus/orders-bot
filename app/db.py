@@ -135,3 +135,13 @@ def get_orders_by_admin(admin_id: int, limit: int = 20, offset: int = 0, db_path
         return list(cur.fetchall())
 
 
+def get_latest_open_order_by_user(user_id: int, db_path: Optional[str] = None) -> Optional[sqlite3.Row]:
+    with get_conn(db_path) as conn:
+        cur = conn.execute(
+            "SELECT * FROM orders WHERE user_id = ? AND status != 'Закрыт' ORDER BY id DESC LIMIT 1",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return row
+
+

@@ -4,6 +4,7 @@ import os
 from typing import Dict, List
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -23,6 +24,7 @@ from .db import (
     assign_order_to_admin,
     get_waiting_orders,
     get_orders_by_admin,
+    get_latest_open_order_by_user,
 )
 
 
@@ -94,6 +96,18 @@ def _my_order_keyboard(order_id: int) -> InlineKeyboardMarkup:
         [[InlineKeyboardButton(s, callback_data=f"status:{order_id}:{s}")] for s in STATUSES]
         + [[InlineKeyboardButton("Закрыть", callback_data=f"close:{order_id}")]]
     )
+
+
+def _user_menu_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    user_rows = [
+        [KeyboardButton("Посмотреть статус заказа")],
+        [KeyboardButton("Создать новый заказ")],
+        [KeyboardButton("Отменить заказ")],
+        [KeyboardButton("Связаться с поддержкой")],
+    ]
+    if is_admin:
+        user_rows.append([KeyboardButton("Изменить статус заказа")])
+    return ReplyKeyboardMarkup(user_rows, resize_keyboard=True)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -246,6 +260,53 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text)
 
 
+async def show_user_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    is_admin = update.effective_user.id in ADMIN_CHAT_IDS
+    await (update.message or update.callback_query.message).reply_text(
+        "Меню:", reply_markup=_user_menu_keyboard(is_admin)
+    )
+
+
+async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text.strip()
+    is_admin = update.effective_user.id in ADMIN_CHAT_IDS
+    if text == "Посмотреть статус заказа":
+        row = get_latest_open_order_by_user(update.effective_user.id)
+        if not row:
+            await update.message.reply_text("У вас нет активных заказов.")
+        else:
+            await update.message.reply_text(
+                f"№{row['id']} | Статус: {row['status']}\nПлатформа: {row['platform']}\nГород: {row['city']}\nДаты: {row['dates']}",
+                reply_markup=_user_menu_keyboard(is_admin),
+            )
+        return
+    if text == "Создать новый заказ":
+        await update.message.reply_text("Запускаю оформление…", reply_markup=ReplyKeyboardRemove())
+        # перезапускаем диалог
+        return await start(update, context)
+    if text == "Отменить заказ":
+        row = get_latest_open_order_by_user(update.effective_user.id)
+        if not row:
+            await update.message.reply_text("Активных заказов нет.", reply_markup=_user_menu_keyboard(is_admin))
+        else:
+            update_order_status(int(row['id']), "Отменен")
+            await update.message.reply_text("Заказ отменен.", reply_markup=_user_menu_keyboard(is_admin))
+        return
+    if text == "Связаться с поддержкой":
+        await update.message.reply_text("Поддержка: @your_support_contact", reply_markup=_user_menu_keyboard(is_admin))
+        return
+    if text == "Изменить статус заказа" and is_admin:
+        # Показываем последний заказ пользователя (для простоты) с кнопками статусов
+        row = get_latest_open_order_by_user(update.effective_user.id)
+        if not row:
+            await update.message.reply_text("Нет заказа для изменения.", reply_markup=_user_menu_keyboard(is_admin))
+        else:
+            await update.message.reply_text(
+                f"Изменение статуса для заказа №{row['id']}", reply_markup=_status_keyboard(int(row['id']))
+            )
+        return
+
+
 async def orders_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id not in ADMIN_CHAT_IDS:
         await update.message.reply_text("Доступ запрещен.")
@@ -347,6 +408,8 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("orders_waiting", orders_waiting))
     application.add_handler(CommandHandler("work_on_orders", work_on_orders))
     application.add_handler(CommandHandler("help", help_cmd))
+    application.add_handler(CommandHandler("menu", show_user_menu))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_click))
     application.add_handler(CallbackQueryHandler(on_status_change, pattern=r"^status:\d+:.+"))
     application.add_handler(CallbackQueryHandler(on_take_order, pattern=r"^take:\d+$"))
     application.add_handler(CallbackQueryHandler(on_close_order, pattern=r"^close:\d+$"))
