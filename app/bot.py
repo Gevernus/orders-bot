@@ -27,11 +27,13 @@ from .db import (
     get_latest_open_order_by_user,
     set_user_consent,
     has_user_consented,
+    set_order_priority,
+    set_order_comment,
 )
 
 
-# Conversation states
-PLATFORM, FULL_NAME, CITY, DATES, MAIN_LINK, BACKUP_LINK, EXTRA_REQUEST, PROMO = range(8)
+# Conversation states (без города, с телефоном)
+PLATFORM, FULL_NAME, DATES, MAIN_LINK, BACKUP_LINK, EXTRA_REQUEST, PROMO, PHONE = range(8)
 
 
 STATUSES: List[str] = [
@@ -61,6 +63,9 @@ PLATFORMS = [
 
 ADMIN_CHAT_IDS = {
     int(cid) for cid in os.environ.get("ADMIN_CHAT_IDS", "").split(",") if cid.strip().isdigit()
+}
+SUPER_ADMIN_IDS = {
+    int(cid) for cid in os.environ.get("SUPER_ADMIN_IDS", "").split(",") if cid.strip().isdigit()
 }
 
 
@@ -109,7 +114,13 @@ def _user_menu_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     ]
     if is_admin:
         user_rows.append([KeyboardButton("Изменить статус заказа")])
+        if update := os.environ.get("ALLOW_SUPER_MENU", "1") and True:
+            user_rows.append([KeyboardButton("Поставить приоритет"), KeyboardButton("Оставить комментарий")])
     return ReplyKeyboardMarkup(user_rows, resize_keyboard=True)
+
+
+def _skip_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Пропустить", callback_data="skip")]])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -153,51 +164,52 @@ async def choose_platform(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     _, key = query.data.split(":", 1)
     context.user_data.setdefault("order", {})
     context.user_data["order"]["platform"] = key
-    await query.edit_message_text("Укажите Имя и Фамилию гостя на английском:")
+    await query.edit_message_text("Укажите Имя и Фамилию гостя на английском:", reply_markup=_skip_keyboard())
     return FULL_NAME
 
 
-async def ask_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def got_full_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["order"]["full_name_en"] = update.message.text.strip()
-    await update.message.reply_text("Укажите город:")
-    return CITY
-
-
-async def ask_dates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["order"]["city"] = update.message.text.strip()
-    await update.message.reply_text("Укажите даты:")
+    await update.message.reply_text("Укажите даты:", reply_markup=_skip_keyboard())
     return DATES
 
 
-async def ask_main_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def ask_main_link_from_dates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["order"]["dates"] = update.message.text.strip()
-    await update.message.reply_text("Ссылка на основной объект:")
+    await update.message.reply_text("Ссылка на основной объект:", reply_markup=_skip_keyboard())
     return MAIN_LINK
 
 
 async def ask_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["order"]["main_link"] = update.message.text.strip()
-    await update.message.reply_text("Ссылка на запасной объект (можно пропустить, отправьте -):")
+    await update.message.reply_text("Ссылка на запасной объект:", reply_markup=_skip_keyboard())
     return BACKUP_LINK
 
 
 async def ask_extra(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
     context.user_data["order"]["backup_link"] = "" if text == "-" else text
-    await update.message.reply_text("Дополнительный запрос (можно пропустить, отправьте -):")
+    await update.message.reply_text("Дополнительный запрос:", reply_markup=_skip_keyboard())
     return EXTRA_REQUEST
 
 
 async def ask_promo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
     context.user_data["order"]["extra_request"] = "" if text == "-" else text
-    await update.message.reply_text("Промокод (можно пропустить, отправьте -):")
+    await update.message.reply_text("Промокод:", reply_markup=_skip_keyboard())
     return PROMO
+
+
+async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = update.message.text.strip()
+    context.user_data["order"]["promo_code"] = "" if text == "-" else text
+    await update.message.reply_text("Укажите номер телефона:", reply_markup=_skip_keyboard())
+    return PHONE
 
 
 async def finalize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
-    context.user_data["order"]["promo_code"] = "" if text == "-" else text
+    context.user_data["order"]["phone"] = "" if text == "-" else text
 
     order: Dict[str, str] = context.user_data["order"]
     order["user_id"] = update.effective_user.id
@@ -207,13 +219,13 @@ async def finalize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     summary = (
         f"Заказ №{order_id} сохранен.\n\n"
         f"Платформа: {order['platform']}\n"
-        f"Имя (EN): {order['full_name_en']}\n"
-        f"Город: {order['city']}\n"
+        f"Имя (EN): {order.get('full_name_en','')}\n"
         f"Даты: {order['dates']}\n"
         f"Основной объект: {order.get('main_link','')}\n"
         f"Запасной объект: {order.get('backup_link','')}\n"
         f"Доп. запрос: {order.get('extra_request','')}\n"
         f"Промокод: {order.get('promo_code','')}\n"
+        f"Телефон: {order.get('phone','')}\n"
         f"Статус: В работе"
     )
     await update.message.reply_text(summary)
@@ -318,6 +330,42 @@ async def handle_menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 f"Изменение статуса для заказа №{row['id']}", reply_markup=_status_keyboard(int(row['id']))
             )
         return
+    if text == "Поставить приоритет":
+        if update.effective_user.id not in SUPER_ADMIN_IDS:
+            await update.message.reply_text("Недостаточно прав.")
+            return
+        await update.message.reply_text("Укажите: <order_id> <priority(0-5)>")
+        context.user_data["awaiting_priority"] = True
+        return
+    if text == "Оставить комментарий":
+        if update.effective_user.id not in SUPER_ADMIN_IDS:
+            await update.message.reply_text("Недостаточно прав.")
+            return
+        await update.message.reply_text("Укажите: <order_id> <комментарий>")
+        context.user_data["awaiting_comment"] = True
+        return
+
+    # Super admin inputs
+    if context.user_data.get("awaiting_priority"):
+        try:
+            oid_str, prio_str = text.split(maxsplit=1)
+            set_order_priority(int(oid_str), max(0, min(5, int(prio_str))))
+            await update.message.reply_text("Приоритет обновлен.")
+        except Exception:
+            await update.message.reply_text("Формат: <order_id> <priority(0-5)>")
+        finally:
+            context.user_data.pop("awaiting_priority", None)
+        return
+    if context.user_data.get("awaiting_comment"):
+        try:
+            oid_str, comment = text.split(maxsplit=1)
+            set_order_comment(int(oid_str), comment)
+            await update.message.reply_text("Комментарий сохранен.")
+        except Exception:
+            await update.message.reply_text("Формат: <order_id> <комментарий>")
+        finally:
+            context.user_data.pop("awaiting_comment", None)
+        return
 
 
 async def orders_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -405,13 +453,14 @@ def build_application() -> Application:
             PLATFORM: [
                 CallbackQueryHandler(on_consent, pattern="^consent_yes$")
             , CallbackQueryHandler(choose_platform, pattern="^platform:.")],
-            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_city)],
-            CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_dates)],
-            DATES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_main_link)],
+            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, got_full_name), CallbackQueryHandler(got_full_name, pattern="^skip$")],
+            DATES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_main_link_from_dates), CallbackQueryHandler(ask_main_link_from_dates, pattern="^skip$")],
+            MAIN_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_backup_link), CallbackQueryHandler(ask_backup_link, pattern="^skip$")],
             MAIN_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_backup_link)],
-            BACKUP_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_extra)],
-            EXTRA_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_promo)],
-            PROMO: [MessageHandler(filters.TEXT & ~filters.COMMAND, finalize)],
+            BACKUP_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_extra), CallbackQueryHandler(ask_extra, pattern="^skip$")],
+            EXTRA_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_promo), CallbackQueryHandler(ask_promo, pattern="^skip$")],
+            PROMO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_phone), CallbackQueryHandler(ask_phone, pattern="^skip$")],
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, finalize), CallbackQueryHandler(finalize, pattern="^skip$")],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )

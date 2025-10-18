@@ -6,6 +6,9 @@ from typing import Any, Dict, Iterable, List, Optional
 
 
 DEFAULT_DB_PATH = os.environ.get("DB_PATH", "/app/data/orders.db")
+SUPER_ADMIN_IDS = {
+    int(x) for x in os.environ.get("SUPER_ADMIN_IDS", "").split(",") if x.strip().isdigit()
+}
 def ensure_meta_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -53,9 +56,12 @@ def init_db(db_path: Optional[str] = None) -> None:
                 backup_link TEXT,
                 extra_request TEXT,
                 promo_code TEXT,
+                phone TEXT,
                 status TEXT NOT NULL DEFAULT 'В работе',
                 assigned_admin_id INTEGER,
                 taken_at TEXT,
+                priority INTEGER NOT NULL DEFAULT 0,
+                admin_comment TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -63,10 +69,28 @@ def init_db(db_path: Optional[str] = None) -> None:
         )
         # Add columns for backward compatibility if DB was created earlier
         cols = {row[1] for row in conn.execute("PRAGMA table_info(orders)")}
+        if "phone" not in cols:
+            conn.execute("ALTER TABLE orders ADD COLUMN phone TEXT")
         if "assigned_admin_id" not in cols:
             conn.execute("ALTER TABLE orders ADD COLUMN assigned_admin_id INTEGER")
         if "taken_at" not in cols:
             conn.execute("ALTER TABLE orders ADD COLUMN taken_at TEXT")
+        if "priority" not in cols:
+            conn.execute("ALTER TABLE orders ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        if "admin_comment" not in cols:
+            conn.execute("ALTER TABLE orders ADD COLUMN admin_comment TEXT")
+
+        # Ensure autoincrement starts from at least 4300
+        try:
+            conn.execute(
+                "INSERT INTO sqlite_sequence(name, seq) SELECT 'orders', 4299 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='orders')"
+            )
+            conn.execute(
+                "UPDATE sqlite_sequence SET seq = CASE WHEN seq < 4299 THEN 4299 ELSE seq END WHERE name='orders'"
+            )
+        except sqlite3.Error:
+            # sqlite_sequence might not be writable in some environments; ignore
+            pass
 
 
 def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
@@ -75,15 +99,18 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
         order["user_id"],
         order["platform"],
         order["full_name_en"],
-        order["city"],
+        order.get("city", ""),
         order["dates"],
         order.get("main_link", ""),
         order.get("backup_link", ""),
         order.get("extra_request", ""),
         order.get("promo_code", ""),
+        order.get("phone", ""),
         order.get("status", "В работе"),
         order.get("assigned_admin_id"),
         order.get("taken_at"),
+            int(order.get("priority", 0)),
+            order.get("admin_comment", ""),
         now,
         now,
     )
@@ -94,8 +121,8 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
             INSERT INTO orders (
                 user_id, platform, full_name_en, city, dates,
                 main_link, backup_link, extra_request, promo_code,
-                status, assigned_admin_id, taken_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                phone, status, assigned_admin_id, taken_at, priority, admin_comment, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -149,7 +176,7 @@ def assign_order_to_admin(order_id: int, admin_id: int, db_path: Optional[str] =
 def get_waiting_orders(limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
     with get_conn(db_path) as conn:
         cur = conn.execute(
-            "SELECT * FROM orders WHERE assigned_admin_id IS NULL AND status != 'Закрыт' ORDER BY id DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM orders WHERE assigned_admin_id IS NULL AND status != 'Закрыт' ORDER BY priority DESC, id DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         return list(cur.fetchall())
@@ -162,6 +189,22 @@ def get_orders_by_admin(admin_id: int, limit: int = 20, offset: int = 0, db_path
             (admin_id, limit, offset),
         )
         return list(cur.fetchall())
+
+
+def set_order_priority(order_id: int, priority: int, db_path: Optional[str] = None) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE orders SET priority = ?, updated_at = ? WHERE id = ?",
+            (priority, datetime.utcnow().isoformat(), order_id),
+        )
+
+
+def set_order_comment(order_id: int, comment: str, db_path: Optional[str] = None) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE orders SET admin_comment = ?, updated_at = ? WHERE id = ?",
+            (comment, datetime.utcnow().isoformat(), order_id),
+        )
 
 
 def get_latest_open_order_by_user(user_id: int, db_path: Optional[str] = None) -> Optional[sqlite3.Row]:
