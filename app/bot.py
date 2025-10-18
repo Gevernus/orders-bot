@@ -130,6 +130,12 @@ def _text_or_skip(update: Update) -> str:
     return "-"
 
 
+async def _reply(update: Update, text: str, reply_markup=None) -> None:
+    target = update.message or (update.callback_query.message if update.callback_query else None)
+    if target:
+        await target.reply_text(text, reply_markup=reply_markup)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("/start from user_id=%s chat_id=%s",
                  getattr(update.effective_user, "id", None),
@@ -178,42 +184,42 @@ async def choose_platform(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def got_full_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["full_name_en"] = "" if text == "-" else text
-    await update.message.reply_text("Укажите даты:", reply_markup=_skip_keyboard())
+    await _reply(update, "Укажите даты:", reply_markup=_skip_keyboard())
     return DATES
 
 
 async def ask_main_link_from_dates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["dates"] = "" if text == "-" else text
-    await update.message.reply_text("Ссылка на основной объект:", reply_markup=_skip_keyboard())
+    await _reply(update, "Ссылка на основной объект:", reply_markup=_skip_keyboard())
     return MAIN_LINK
 
 
 async def ask_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["main_link"] = "" if text == "-" else text
-    await update.message.reply_text("Ссылка на запасной объект:", reply_markup=_skip_keyboard())
+    await _reply(update, "Ссылка на запасной объект:", reply_markup=_skip_keyboard())
     return BACKUP_LINK
 
 
 async def ask_extra(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["backup_link"] = "" if text == "-" else text
-    await update.message.reply_text("Дополнительный запрос:", reply_markup=_skip_keyboard())
+    await _reply(update, "Дополнительный запрос:", reply_markup=_skip_keyboard())
     return EXTRA_REQUEST
 
 
 async def ask_promo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["extra_request"] = "" if text == "-" else text
-    await update.message.reply_text("Промокод:", reply_markup=_skip_keyboard())
+    await _reply(update, "Промокод:", reply_markup=_skip_keyboard())
     return PROMO
 
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = _text_or_skip(update)
     context.user_data["order"]["promo_code"] = "" if text == "-" else text
-    await update.message.reply_text("Укажите номер телефона:", reply_markup=_skip_keyboard())
+    await _reply(update, "Укажите номер телефона:", reply_markup=_skip_keyboard())
     return PHONE
 
 
