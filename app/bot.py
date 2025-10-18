@@ -123,6 +123,13 @@ def _skip_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("Пропустить", callback_data="skip")]])
 
 
+def _text_or_skip(update: Update) -> str:
+    if update.message and update.message.text is not None:
+        return update.message.text.strip()
+    # callback on skip
+    return "-"
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("/start from user_id=%s chat_id=%s",
                  getattr(update.effective_user, "id", None),
@@ -169,46 +176,49 @@ async def choose_platform(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def got_full_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["order"]["full_name_en"] = update.message.text.strip()
+    text = _text_or_skip(update)
+    context.user_data["order"]["full_name_en"] = "" if text == "-" else text
     await update.message.reply_text("Укажите даты:", reply_markup=_skip_keyboard())
     return DATES
 
 
 async def ask_main_link_from_dates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["order"]["dates"] = update.message.text.strip()
+    text = _text_or_skip(update)
+    context.user_data["order"]["dates"] = "" if text == "-" else text
     await update.message.reply_text("Ссылка на основной объект:", reply_markup=_skip_keyboard())
     return MAIN_LINK
 
 
 async def ask_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data["order"]["main_link"] = update.message.text.strip()
+    text = _text_or_skip(update)
+    context.user_data["order"]["main_link"] = "" if text == "-" else text
     await update.message.reply_text("Ссылка на запасной объект:", reply_markup=_skip_keyboard())
     return BACKUP_LINK
 
 
 async def ask_extra(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = _text_or_skip(update)
     context.user_data["order"]["backup_link"] = "" if text == "-" else text
     await update.message.reply_text("Дополнительный запрос:", reply_markup=_skip_keyboard())
     return EXTRA_REQUEST
 
 
 async def ask_promo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = _text_or_skip(update)
     context.user_data["order"]["extra_request"] = "" if text == "-" else text
     await update.message.reply_text("Промокод:", reply_markup=_skip_keyboard())
     return PROMO
 
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = _text_or_skip(update)
     context.user_data["order"]["promo_code"] = "" if text == "-" else text
     await update.message.reply_text("Укажите номер телефона:", reply_markup=_skip_keyboard())
     return PHONE
 
 
 async def finalize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip()
+    text = _text_or_skip(update)
     context.user_data["order"]["phone"] = "" if text == "-" else text
 
     order: Dict[str, str] = context.user_data["order"]
@@ -460,7 +470,6 @@ def build_application() -> Application:
             FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, got_full_name), CallbackQueryHandler(got_full_name, pattern="^skip$")],
             DATES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_main_link_from_dates), CallbackQueryHandler(ask_main_link_from_dates, pattern="^skip$")],
             MAIN_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_backup_link), CallbackQueryHandler(ask_backup_link, pattern="^skip$")],
-            MAIN_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_backup_link)],
             BACKUP_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_extra), CallbackQueryHandler(ask_extra, pattern="^skip$")],
             EXTRA_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_promo), CallbackQueryHandler(ask_promo, pattern="^skip$")],
             PROMO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_phone), CallbackQueryHandler(ask_phone, pattern="^skip$")],
