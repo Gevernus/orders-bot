@@ -9,6 +9,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      - SUPER_ADMIN_IDS=${SUPER_ADMIN_IDS}
       - DB_PATH=/app/data/orders.db
     volumes:
       - ./data:/app/data
