@@ -219,6 +219,24 @@ async def list_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(text, reply_markup=_status_keyboard(int(row["id"])))
 
 
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    is_admin = update.effective_user.id in ADMIN_CHAT_IDS
+    if is_admin:
+        text = (
+            "Помощь (админ):\n"
+            "- /orders_waiting — заказы без исполнителя\n"
+            "- /work_on_orders — ваши активные заказы\n"
+            "- /orders — последние 10 заказов со сменой статусов\n"
+            "Нажмите ‘Взять в работу’ в /orders_waiting, далее меняйте статусы кнопками."
+        )
+    else:
+        text = (
+            "Помощь: отправьте /start, заполните анкету и дождитесь ответа админа.\n"
+            "Если что-то пошло не так — повторите /start."
+        )
+    await update.message.reply_text(text)
+
+
 async def orders_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id not in ADMIN_CHAT_IDS:
         await update.message.reply_text("Доступ запрещен.")
@@ -307,6 +325,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("orders", list_orders))
     application.add_handler(CommandHandler("orders_waiting", orders_waiting))
     application.add_handler(CommandHandler("work_on_orders", work_on_orders))
+    application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CallbackQueryHandler(on_status_change, pattern=r"^status:\d+:.+"))
     application.add_handler(CallbackQueryHandler(on_take_order, pattern=r"^take:\d+$"))
 
