@@ -15,7 +15,15 @@ from telegram.ext import (
     filters,
 )
 
-from .db import init_db, insert_order, update_order_status, get_orders
+from .db import (
+    init_db,
+    insert_order,
+    update_order_status,
+    get_orders,
+    assign_order_to_admin,
+    get_waiting_orders,
+    get_orders_by_admin,
+)
 
 
 # Conversation states
@@ -74,10 +82,17 @@ def _status_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def _waiting_order_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Взять в работу", callback_data=f"take:{order_id}")]]
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("/start from user_id=%s chat_id=%s",
                  getattr(update.effective_user, "id", None),
                  getattr(update.effective_chat, "id", None))
+    print(f"/start received: user_id={getattr(update.effective_user, 'id', None)}")
     text = (
         "Привет! Это бот заказов.\n\n"
         "Перед началом подтвердите согласие с правилами и подпишитесь на канал."
@@ -204,6 +219,38 @@ async def list_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(text, reply_markup=_status_keyboard(int(row["id"])))
 
 
+async def orders_waiting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id not in ADMIN_CHAT_IDS:
+        await update.message.reply_text("Доступ запрещен.")
+        return
+    rows = get_waiting_orders(limit=15)
+    if not rows:
+        await update.message.reply_text("Нет заказов в ожидании.")
+        return
+    for row in rows:
+        text = (
+            f"Ожидает №{row['id']} | {row['platform']} | {row['full_name_en']}\n"
+            f"Город: {row['city']} | Даты: {row['dates']}\n"
+        )
+        await update.message.reply_text(text, reply_markup=_waiting_order_keyboard(int(row["id"])))
+
+
+async def work_on_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id not in ADMIN_CHAT_IDS:
+        await update.message.reply_text("Доступ запрещен.")
+        return
+    rows = get_orders_by_admin(update.effective_user.id, limit=15)
+    if not rows:
+        await update.message.reply_text("У вас нет заказов в работе.")
+        return
+    for row in rows:
+        text = (
+            f"В работе №{row['id']} | {row['platform']} | {row['full_name_en']} | {row['status']}\n"
+            f"Город: {row['city']} | Даты: {row['dates']}\n"
+        )
+        await update.message.reply_text(text, reply_markup=_status_keyboard(int(row["id"])))
+
+
 async def on_status_change(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -212,6 +259,18 @@ async def on_status_change(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     update_order_status(order_id_int, status)
     await query.edit_message_reply_markup(reply_markup=_status_keyboard(order_id_int))
     await query.message.reply_text(f"Статус заказа №{order_id} обновлен на: {status}")
+
+
+async def on_take_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id not in ADMIN_CHAT_IDS:
+        await update.callback_query.answer(text="Нет доступа", show_alert=True)
+        return
+    query = update.callback_query
+    await query.answer()
+    _, order_id_str = query.data.split(":", 1)
+    order_id = int(order_id_str)
+    assign_order_to_admin(order_id, update.effective_user.id)
+    await query.edit_message_text("Заказ взят в работу.")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -246,7 +305,10 @@ def build_application() -> Application:
 
     application.add_handler(conv)
     application.add_handler(CommandHandler("orders", list_orders))
+    application.add_handler(CommandHandler("orders_waiting", orders_waiting))
+    application.add_handler(CommandHandler("work_on_orders", work_on_orders))
     application.add_handler(CallbackQueryHandler(on_status_change, pattern=r"^status:\d+:.+"))
+    application.add_handler(CallbackQueryHandler(on_take_order, pattern=r"^take:\d+$"))
 
     return application
 
@@ -255,6 +317,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.info("Bot starting...")
+    print("Startup OK: orders-bot is starting polling...")
     application = build_application()
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

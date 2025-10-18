@@ -43,11 +43,19 @@ def init_db(db_path: Optional[str] = None) -> None:
                 extra_request TEXT,
                 promo_code TEXT,
                 status TEXT NOT NULL DEFAULT 'В работе',
+                assigned_admin_id INTEGER,
+                taken_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
             """
         )
+        # Add columns for backward compatibility if DB was created earlier
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(orders)")}
+        if "assigned_admin_id" not in cols:
+            conn.execute("ALTER TABLE orders ADD COLUMN assigned_admin_id INTEGER")
+        if "taken_at" not in cols:
+            conn.execute("ALTER TABLE orders ADD COLUMN taken_at TEXT")
 
 
 def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
@@ -63,6 +71,8 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
         order.get("extra_request", ""),
         order.get("promo_code", ""),
         order.get("status", "В работе"),
+        order.get("assigned_admin_id"),
+        order.get("taken_at"),
         now,
         now,
     )
@@ -73,8 +83,8 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
             INSERT INTO orders (
                 user_id, platform, full_name_en, city, dates,
                 main_link, backup_link, extra_request, promo_code,
-                status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, assigned_admin_id, taken_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -96,5 +106,31 @@ def update_order_status(order_id: int, status: str, db_path: Optional[str] = Non
             "UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
             (status, datetime.utcnow().isoformat(), order_id),
         )
+
+
+def assign_order_to_admin(order_id: int, admin_id: int, db_path: Optional[str] = None) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE orders SET assigned_admin_id = ?, taken_at = ?, updated_at = ? WHERE id = ?",
+            (admin_id, datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), order_id),
+        )
+
+
+def get_waiting_orders(limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
+    with get_conn(db_path) as conn:
+        cur = conn.execute(
+            "SELECT * FROM orders WHERE assigned_admin_id IS NULL ORDER BY id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        return list(cur.fetchall())
+
+
+def get_orders_by_admin(admin_id: int, limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
+    with get_conn(db_path) as conn:
+        cur = conn.execute(
+            "SELECT * FROM orders WHERE assigned_admin_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (admin_id, limit, offset),
+        )
+        return list(cur.fetchall())
 
 
