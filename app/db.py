@@ -91,12 +91,13 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
         return int(cur.lastrowid)
 
 
-def get_orders(limit: int = 20, offset: int = 0, db_path: Optional[str] = None) -> List[sqlite3.Row]:
+def get_orders(limit: int = 20, offset: int = 0, include_closed: bool = False, db_path: Optional[str] = None) -> List[sqlite3.Row]:
     with get_conn(db_path) as conn:
-        cur = conn.execute(
-            "SELECT * FROM orders ORDER BY id DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        )
+        base = "SELECT * FROM orders"
+        if not include_closed:
+            base += " WHERE status != 'Закрыт'"
+        base += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        cur = conn.execute(base, (limit, offset))
         return list(cur.fetchall())
 
 

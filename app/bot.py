@@ -214,7 +214,7 @@ async def list_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if update.effective_user.id not in ADMIN_CHAT_IDS:
         await update.message.reply_text("Доступ запрещен.")
         return
-    rows = get_orders(limit=10)
+    rows = get_orders(limit=10, include_closed=False)
     if not rows:
         await update.message.reply_text("Заказов нет.")
         return
