@@ -84,7 +84,7 @@ def insert_order(order: Dict[str, Any], db_path: Optional[str] = None) -> int:
                 user_id, platform, full_name_en, city, dates,
                 main_link, backup_link, extra_request, promo_code,
                 status, assigned_admin_id, taken_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
